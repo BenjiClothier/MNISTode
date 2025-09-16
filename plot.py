@@ -39,16 +39,16 @@ unet = MNISTUNet(
 # Samples
 num_rows = 4
 num_cols = 4
-num_timesteps = 50
+num_timesteps = 100
 num_samples = num_rows * num_cols
 
 
-unet.load_state_dict(torch.load('trained/model2025-08-26_15-29-36.pth', map_location=device))
+unet.load_state_dict(torch.load('trained/model2025-09-15_12-02-14.pth', map_location=device))
 z, y = path.p_data.sample(num_samples)
 
 
 # Initialise ODE
-ode = VectorFieldODE(unet)
+ode = CFGVectorFieldODE(unet)
 simulator = EulerSimulator(ode)
 
 timestep = torch.linspace(0,1,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
@@ -60,8 +60,8 @@ x0_grid = make_grid(x0, nrow=4, normalize=True, value_range=(-1, 1))
 x1_grid = make_grid(x1, nrow=4, normalize=True, value_range=(-1, 1))
 
 # Convert to numpy for plotting
-x0_grid_np = x0_grid.permute(1, 2, 0).cpu().numpy()
-x1_grid_np = x1_grid.permute(1, 2, 0).cpu().numpy()
+x0_grid_np = x0_grid.permute(1,2,0).cpu().numpy()
+x1_grid_np = x1_grid.permute(1,2,0).cpu().numpy()
 
 # Plot side by side
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))

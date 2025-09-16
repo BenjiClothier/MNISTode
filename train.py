@@ -27,7 +27,7 @@ path = GaussianConditionalProbabilityPath(
     p_data = MNISTSampler(),
     p_simple_shape = [1, 32, 32],
     alpha = LinearAlpha(),
-    beta = SquareRootBeta()
+    beta = LinearBeta()
 ).to(device)
 
 # Initialise model
@@ -39,10 +39,10 @@ unet = MNISTUNet(
 ).to(device)
 
 # Initialise trainer
-trainer = ConditionalFlowMatchingTrainer(path = path, model = unet)
+trainer = ConditionalLabelledFlowMatchingTrainer(model=unet, path=path)
 
 # Train
-trainer.train(num_epoch=5000, device=device, lr=1e-3, batch_size=250)
+trainer.train(num_epoch=10000, device=device, lr=1e-3, batch_size=150)
 
 
 # Sample forward process

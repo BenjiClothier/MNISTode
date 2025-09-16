@@ -8,8 +8,36 @@ import torch
 from torch.func import vmap, jacrev
 import torch.nn as nn
 from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+class Density(ABC):
+    """
+    Distribution with tractable density
+    """
+    @abstractmethod
+    def log_density(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Returns the log density at x.
+        Args:
+            - x: shape (batch_size, dim)
+        Returns:
+            - log_density: shape (batch_size, 1)
+        """
+        pass
+
+    def score(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Returns the score dx log density(x)
+        Args:
+            - x: (batch_size, dim)
+        Returns:
+            - score: (batch_size, dim)
+        """
+        x = x.unsqueeze(1)  # (batch_size, 1, ...)
+        score = vmap(jacrev(self.log_density))(x)  # (batch_size, 1, 1, 1, ...)
+        return score.squeeze((1, 2, 3))  # (batch_size, ...)
 
 class Sampleable(ABC):
     """
@@ -113,7 +141,7 @@ class ConditionalProbabilityPath(nn.Module, ABC):
         """
         num_samples = t.shape[0]
         # Sample conditional variable z ~ p(z)
-        z, _ = self.sample_conditioning_variable(num_samples) # (num_samples, c, h, w)
+        z = self.sample_conditioning_variable(num_samples) # (num_samples, c, h, w)
         # Sample condition probability path x ~ p_t(x|z)
         x = self.sample_conditional_path(z, t) # (num_sample, c, h, w)
         return x
@@ -268,13 +296,16 @@ class Trainer(ABC):
     def get_optimiser(self, lr: float):
         return torch.optim.Adam(self.model.parameters(), lr=lr)
     
-    def train(self, num_epoch: int, device: torch.device, lr: float = 1e-3, **kwargs) -> torch.Tensor:
+    def train(self, num_epoch: int, device: torch.device, lr: float = 1e-3,
+              log_dir: str = f'runs/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}', **kwargs) -> torch.Tensor:
         print(f'Training model....')
 
         # Start
         self.model.to(device)
         opt = self.get_optimiser(lr)
         self.model.train()
+        self.writer = SummaryWriter(log_dir=log_dir)
+        self.step = 0
 
         # Loop
         pbar = tqdm(enumerate(range(num_epoch)))
@@ -282,9 +313,11 @@ class Trainer(ABC):
             opt.zero_grad()
             loss = self.get_train_loss(**kwargs)
             loss.backward()
+            self.writer.add_scalar('Loss/Train', loss.item(), self.step)
+            self.step += 1
             opt.step()
             pbar.set_description(f'Epoch {idx}, loss: {loss.item():.3f}')
-        
+
         # Save model
         os.makedirs('trained', exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -295,6 +328,7 @@ class Trainer(ABC):
         print(f"Model saved to: {filepath}")
 
         # Finish
+        self.writer.close()
         self.model.eval()
 
 class ConditionalVectorField(nn.Module, ABC):
