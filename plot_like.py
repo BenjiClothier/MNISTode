@@ -20,10 +20,17 @@ from blocks import *
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
+# Initialise probability path for normal data
+# path = GaussianConditionalProbabilityPath(
+#     p_data = FilteredMNISTSampler(excluded_digits=[2,3,4,5,6,7,8,9]),
+#     p_simple_shape = [1, 32, 32],
+#     alpha = LinearAlpha(),
+#     beta = LinearBeta()
+# ).to(device)
 
-# Initialise probability path
+# Initialise probability path for abnormal data
 path = GaussianConditionalProbabilityPath(
-    p_data = MNISTSampler(),
+    p_data = FilteredMNISTSampler(excluded_digits=[0,1]),
     p_simple_shape = [1, 32, 32],
     alpha = LinearAlpha(),
     beta = LinearBeta()
@@ -44,7 +51,13 @@ num_timesteps = 100
 num_samples = num_rows * num_cols
 
 
-unet.load_state_dict(torch.load('trained/model2025-09-15_12-46-35.pth', map_location=device))
+# trained/model2025-09-15_12-46-35.pth MNIST no anomalies
+# trained/model2025-09-16_16-37-19.pth MNIST no 5's
+# trained/model2025-09-29_16-18-55.pth MNIST [0,1] only
+
+
+
+unet.load_state_dict(torch.load('trained/model2025-09-29_16-18-55.pth', map_location=device))
 z, y = path.p_data.sample(num_samples)
 
 
@@ -52,85 +65,28 @@ z, y = path.p_data.sample(num_samples)
 ode = LikelihoodODE(unet)
 simulator = LikelihoodSimulator(ode)
 
-# timestep = torch.linspace(0,1,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
-# x0, _ = path.p_simple.sample(num_samples)
-# x1 = simulator.simulate(x0,timestep, y=y)
+dlogp_list = []
 
-# # Create grids for x0 and x1
-# x0_grid = make_grid(x0, nrow=num_rows, normalize=True, value_range=(-1, 1))
-# x1_grid = make_grid(x1, nrow=num_rows, normalize=True, value_range=(-1, 1))
+for i in range(100):
+    num_samples = 1
+    z, y = path.p_data.sample(num_samples)
+    timestep = torch.linspace(1, 0, num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
+    x0 = z
+    x1, dlogp = simulator.simulate_with_likelihood_trajectory(x0, timestep, y)
+    dlogp = dlogp.detach().cpu().numpy()
+    dlogp = -np.cumsum(np.flip(dlogp))
+    
+    # Append to list
+    dlogp_list.append(dlogp)
+    
+    if i % 10 == 0:  # Progress indicator
+        print(f"Iteration {i}/100")
 
-# # Convert to numpy for plotting
-# x0_grid_np = x0_grid.permute(1,2,0).cpu().numpy()
-# x1_grid_np = x1_grid.permute(1,2,0).cpu().numpy()
+# Stack all dlogp arrays
+# This creates a 2D array where each row is one iteration's dlogp
+dlogp_stacked = np.stack(dlogp_list, axis=0)
+os.makedirs('vectors_MNIST_0_1', exist_ok=True)
+np.save('vectors_MNIST_0_1/abnorm_all_but_0_1.npy', dlogp_stacked)
+print(f"Stacked shape: {dlogp_stacked.shape}")
+print(f"Shape is (num_iterations, dlogp_length): ({dlogp_stacked.shape[0]}, {dlogp_stacked.shape[1]})")
 
-# # Plot side by side
-# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-
-# ax1.imshow(x0_grid.permute(1,2,0).cpu(), cmap='gray')
-# ax1.set_title('Starting Distribution (x0)')
-# ax1.axis('off')
-
-# ax2.imshow(x1_grid.permute(1,2,0).cpu(), cmap='gray')
-# ax2.set_title('Final Distribution (x1)')
-# ax2.axis('off')
-
-# # Add grid labels on the final image
-# for i in range(num_rows):
-#     for j in range(num_cols):
-#         idx = i * num_cols + j
-#         label = y[idx].item() if y[idx].dim() == 0 else y[idx].argmax().item()
-        
-#         # Calculate position in the grid image
-#         img_height, img_width = x1_grid.shape[1], x1_grid.shape[2]
-#         cell_height = img_height // num_rows
-#         cell_width = img_width // num_cols
-        
-#         x_pos = j * cell_width + cell_width // 2
-#         # Position label near the bottom of the cell (80% down from top)
-#         y_pos = i * cell_height + int(0.85 * cell_height)
-        
-#         # Add text label on the image
-#         ax2.text(x_pos, y_pos, str(label), 
-#                 color='red', fontsize=10, fontweight='bold',
-#                 ha='center', va='center',
-#                 bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.9))
-
-# plt.tight_layout()
-# plt.show()
-
-# # From sample to noise via ODE
-
-# timestep = torch.linspace(1,0,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
-# x0 = z
-# x1 = simulator.simulate(x0, timestep, y=y)
-
-# # Create grids for x0 and x1
-# x0_grid = make_grid(x0, nrow=num_rows, normalize=True, value_range=(-1, 1))
-# x1_grid = make_grid(x1, nrow=num_rows, normalize=True, value_range=(-1, 1))
-
-# # Convert to numpy for plotting
-# x0_grid_np = x0_grid.permute(1,2,0).cpu().numpy()
-# x1_grid_np = x1_grid.permute(1,2,0).cpu().numpy()
-
-# # Plot side by side
-# fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-
-# ax1.imshow(x0_grid.permute(1,2,0).cpu(), cmap='gray')
-# ax1.set_title('Starting Distribution (x0)')
-# ax1.axis('off')
-
-# ax2.imshow(x1_grid.permute(1,2,0).cpu(), cmap='gray')
-# ax2.set_title('Final Distribution (x1)')
-# ax2.axis('off')
-
-# plt.tight_layout()
-# plt.show()
-
-num_samples = 1
-z, y = path.p_data.sample(num_samples)
-timestep = torch.linspace(1,0,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
-x0 = z
-x1, dlogp = simulator.simulate_with_likelihood_trajectory(x0, timestep, y)
-print(f'dlogp: {dlogp.shape}')
-print(f'{dlogp}')

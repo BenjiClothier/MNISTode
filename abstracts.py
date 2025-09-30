@@ -10,6 +10,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class Density(ABC):
@@ -355,7 +356,7 @@ class IsotropicGaussian(nn.Module, Sampleable):
         self.dummy = nn.Buffer(torch.zeros(1))
     
     def sample(self, num_samples) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.std * torch.randn(num_samples, *self.shape).to(self.dummy.device), None
+        return self.std * torch.randn(num_samples, *self.shape).to(self.dummy.device)
 
 
 

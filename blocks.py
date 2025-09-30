@@ -12,6 +12,8 @@ import torch.distributions as D
 from torch.utils.tensorboard import SummaryWriter
 import os
 from datetime import datetime
+from PIL import Image
+import random
 
 import abstracts as ab
 from unet import FourierEncoder, Midcoder, Encoder, Decoder
@@ -307,6 +309,152 @@ class FilteredMNISTSampler(nn.Module, ab.Sampleable):
         """Returns the set of excluded labels"""
         return sorted(self.excluded_digits)    
 
+class PNGSampler32x32(nn.Module, ab.Sampleable):
+    """
+    Sampler that loads PNG images from a folder and samples them randomly.
+    Images are resized to 32x32 and converted to tensors.
+    """
+    
+    def __init__(self, 
+                 folder_path: str, 
+                 normalize: bool = True,
+                 to_rgb: bool = True,
+                 cache_images: bool = True):
+        """
+        Args:
+            folder_path: Path to folder containing PNG images
+            normalize: Whether to normalize images to [0, 1] range
+            to_rgb: Whether to convert images to RGB (3 channels)
+            cache_images: Whether to cache loaded images in memory for faster sampling
+        """
+        super().__init__()
+        
+        self.folder_path = folder_path
+        self.cache_images = cache_images
+        self.normalize = normalize
+        self.to_rgb = to_rgb
+        
+        # Set up image transforms
+        transform_list = [transforms.Resize((32, 32))]
+        if to_rgb:
+            transform_list.append(transforms.Lambda(lambda img: img.convert('RGB')))
+        transform_list.append(transforms.ToTensor())
+        if not normalize:
+            # If not normalizing, convert back to [0, 255] range
+            transform_list.append(transforms.Lambda(lambda x: x * 255.0))
+            
+        self.transform = transforms.Compose(transform_list)
+        
+        # Find all PNG files
+        self.png_files = self._find_png_files()
+        if len(self.png_files) == 0:
+            raise ValueError(f"No PNG files found in {folder_path}")
+        
+        # Cache images if requested
+        self.cached_images = None
+        if cache_images:
+            self._cache_images()
+    
+    def _find_png_files(self) -> List[str]:
+        """Find all PNG files in the folder."""
+        png_files = []
+        for filename in os.listdir(self.folder_path):
+            if filename.lower().endswith('.png'):
+                png_files.append(os.path.join(self.folder_path, filename))
+        return png_files
+    
+    def _cache_images(self):
+        """Load and cache all images in memory."""
+        print(f"Caching {len(self.png_files)} images...")
+        self.cached_images = []
+        for img_path in self.png_files:
+            try:
+                img = Image.open(img_path)
+                tensor_img = self.transform(img)
+                self.cached_images.append(tensor_img)
+            except Exception as e:
+                print(f"Warning: Could not load image {img_path}: {e}")
+        print(f"Successfully cached {len(self.cached_images)} images")
+    
+    def _load_image(self, img_path: str) -> torch.Tensor:
+        """Load and transform a single image."""
+        img = Image.open(img_path)
+        return self.transform(img)
+    
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Sample random images from the PNG folder.
+        
+        Args:
+            num_samples: Number of samples to return
+            
+        Returns:
+            samples: Tensor of shape (num_samples, channels, 32, 32)
+            labels: None (no labels available for this sampler)
+        """
+        if num_samples <= 0:
+            raise ValueError("num_samples must be positive")
+        
+        # Sample random indices
+        if self.cache_images and self.cached_images:
+            # Sample from cached images
+            indices = random.choices(range(len(self.cached_images)), k=num_samples)
+            samples = torch.stack([self.cached_images[i] for i in indices])
+        else:
+            # Load images on-demand
+            sampled_paths = random.choices(self.png_files, k=num_samples)
+            samples = []
+            for img_path in sampled_paths:
+                try:
+                    tensor_img = self._load_image(img_path)
+                    samples.append(tensor_img)
+                except Exception as e:
+                    print(f"Warning: Could not load image {img_path}: {e}")
+                    # Use a zero tensor as fallback
+                    channels = 3 if self.to_rgb else 1
+                    fallback = torch.zeros(channels, 32, 32)
+                    samples.append(fallback)
+            samples = torch.stack(samples)
+        
+        # No labels available
+        labels = None
+        
+        return samples, labels
+    
+    def __len__(self) -> int:
+        """Return the number of available images."""
+        return len(self.cached_images) if self.cache_images and self.cached_images else len(self.png_files)
+    
+    def get_sample_shape(self) -> Tuple[int, int, int]:
+        """Return the shape of a single sample (channels, height, width)."""
+        channels = 3 if self.to_rgb else 1
+        return (channels, 32, 32)
+
+class Beta1D(ab.Sampleable):
+
+    def __init__(self, device, start_point, end_point, alpha=2.0, beta=2.0):
+        """
+        Args:
+            start_point: (x, y) coordinates of line start
+            end_point: (x, y) coordinates of line end  
+            alpha, beta: Beta distribution parameters
+        """
+        self.device = device
+        self.start = torch.tensor(start_point, dtype=torch.float32).to(self.device)
+        self.end = torch.tensor(end_point, dtype=torch.float32).to(self.device)
+        self.vector = self.end - self.start
+        self.beta_dist = D.Beta(alpha, beta)
+        
+
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        # Sample t parameters from Beta distribution
+        t = self.beta_dist.sample((num_samples,)).to(device)
+        
+        # Convert to 2D points: start + t * (end - start)
+        points = (self.start.unsqueeze(0) + t.unsqueeze(1) * self.vector.unsqueeze(0)).to(device)
+        # Return samples
+        return points
+    
 #---------Models-------------------#
 
 class MNISTUNet(ab.ConditionalVectorField):
@@ -538,86 +686,9 @@ class LikelihoodODE(ab.ODE):
         t = t.to(device)
         y = y.to(device)
        
-        # y = torch.ones_like(y, dtype=torch.int64) * 10
         return self.net(x, t, y)
     
         
-    # def compute_div(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor, create_graph=True):
-    #     x = x.to(device)
-    #     t = t.to(device)
-    #     y = y.to(device)
-        
-    #     original_shape = x.shape
-    #     batch_size = x.shape[0]
-        
-    #     # Make the original x require gradients
-    #     x = x.requires_grad_(True)
-        
-    #     # Get vector field from U-Net (using original shape)
-    #     vector_field = self.drift_coefficient(x, t, y)
-        
-    #     # Flatten for divergence computation
-    #     x_flat = x.flatten(1)  # Don't need requires_grad here since x already has it
-    #     vec_flat = vector_field.flatten(1)
-    #     x_dim = x_flat.shape[1]
-        
-    #     div = torch.zeros(batch_size, device=x.device)
-        
-    #     for i in range(x_dim):
-    #         v_i = vec_flat[:, i]
-    #         grad_outs = torch.ones_like(v_i)
-    #         grad_v_i = torch.autograd.grad(
-    #             outputs=v_i,
-    #             inputs=x_flat,  # This now has gradients through x
-    #             grad_outputs=grad_outs,
-    #             create_graph=create_graph,
-    #             retain_graph=True
-    #         )[0]
-            
-    #         if grad_v_i is not None:
-    #             div += grad_v_i[:, i]
-        
-    #     return div
-
-    # def compute_div(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor, create_graph=True):
-    #     x = x.to(device)
-    #     t = t.to(device)
-    #     y = y.to(device)
-        
-    #     batch_size = x.shape[0]
-    #     x = x.requires_grad_(True)
-        
-    #     # Get vector field
-    #     vector_field = self.drift_coefficient(x, t, y)
-        
-    #     # Flatten
-    #     x_flat = x.flatten(1).requires_grad_(True)
-    #     vec_flat = vector_field.flatten(1)
-    #     x_dim = vec_flat.shape[1]
-        
-    #     # Method 1: Compute all gradients at once (most efficient)
-    #     div = torch.zeros(batch_size, device=x.device)
-        
-    #     # Create identity matrix to get gradients for all dimensions
-    #     eye = torch.eye(x_dim, device=x.device, dtype=vec_flat.dtype)
-        
-    #     for i in range(x_dim):
-    #         # Use the i-th unit vector to get gradient of i-th component
-    #         grad_outputs = eye[i:i+1].expand(batch_size, -1)
-            
-    #         grad_v = torch.autograd.grad(
-    #             outputs=vec_flat,
-    #             inputs=x_flat,
-    #             grad_outputs=grad_outputs,
-    #             create_graph=create_graph,
-    #             retain_graph=True
-    #         )[0]
-            
-    #         if grad_v is not None:
-    #             div += grad_v[:, i]
-        
-    #     return div
-
     def compute_div(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor, create_graph=True):
         """
         Compute divergence using Hutchinson's trace estimator

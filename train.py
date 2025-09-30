@@ -20,11 +20,11 @@ from blocks import *
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Initialise sampler
-sampler = MNISTSampler().to(device)
+sampler = FilteredMNISTSampler(excluded_digits=5).to(device)
 
 # Initialise probability path
 path = GaussianConditionalProbabilityPath(
-    p_data = MNISTSampler(),
+    p_data = FilteredMNISTSampler(excluded_digits=[2,3,4,5,6,7,8,9]),
     p_simple_shape = [1, 32, 32],
     alpha = LinearAlpha(),
     beta = LinearBeta()

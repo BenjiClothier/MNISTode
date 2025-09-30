@@ -51,6 +51,7 @@ axes[0, 0].set_ylabel("Ground Truth", fontsize=20)
 ts = torch.linspace(0,1,100).to(device)
 record_every_idxs = pf.record_every(len(ts), len(ts) // (num_marginals - 1))
 x0 = path.p_simple.sample(num_samples)
+print(f'x0 : {x0}')
 xts = simulator.simulate_with_trajectory(x0, ts.view(1,-1,1).expand(num_samples,-1,1))
 xts = xts[:,record_every_idxs,:]
 for idx in range(xts.shape[1]):
