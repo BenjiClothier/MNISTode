@@ -22,7 +22,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Initialise probability path
 path = GaussianConditionalProbabilityPath(
-    p_data = MNISTSampler(),
+    p_data = FilteredMNISTSampler(excluded_digits=[0,1,2,3,4,5,6,7]),
     p_simple_shape = [1, 32, 32],
     alpha = LinearAlpha(),
     beta = LinearBeta()
@@ -43,7 +43,7 @@ num_timesteps = 100
 num_samples = num_rows * num_cols
 
 
-unet.load_state_dict(torch.load('trained/model2025-09-15_12-46-35.pth', map_location=device))
+unet.load_state_dict(torch.load('trained/model2025-10-13_10-51-14.pth', map_location=device))
 z, y = path.p_data.sample(num_samples)
 
 
@@ -52,7 +52,7 @@ ode = VectorFieldODE(unet)
 simulator = HuenLabelSimulator(ode)
 
 timestep = torch.linspace(0,1,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
-x0, _ = path.p_simple.sample(num_samples)
+x0 = path.p_simple.sample(num_samples)
 x1 = simulator.simulate(x0,timestep, y=y)
 
 # Create grids for x0 and x1

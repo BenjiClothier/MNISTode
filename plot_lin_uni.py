@@ -17,12 +17,12 @@ from blocks import *
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 model = MLPVectorField(dim=2, hiddens=[64,64,64,64]).to(device)
-model.load_state_dict(torch.load('trained/model2025-09-10_12-27-45.pth')) 
-
+model.load_state_dict(torch.load('trained/model2025-10-31_10-48-32.pth')) 
+mean = torch.tensor([10,10], dtype=torch.float32)
 # Initialise Path
 path = LinearConditionalProbabilityPath(
     p_simple = Gaussian.isotropic(dim=2, std=1.0).to(device),
-    p_data = UniformSampler(device)
+    p_data = Gaussian.isotropic_with_mean(mean, std=1.0).to(device)
 )
 
 ode = MoonODE(model)
@@ -33,7 +33,7 @@ num_marginals = 5
 
 fig, axes = plt.subplots(2, num_marginals, figsize=(6 * num_marginals, 6 * 2))
 axes = axes.reshape(2, num_marginals)
-scale = 6.0
+scale = 15.0
 
 ts = torch.linspace(0.0, 1.0, num_marginals).to(device)
 for idx, t in enumerate(ts):

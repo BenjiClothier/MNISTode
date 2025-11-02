@@ -21,7 +21,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Load both stacks
 dlogp_normal = np.load('vectors_MNIST_0_1/norm.npy')
-dlogp_anomalous = np.load('vectors_MNIST_0_1/abnorm_all_but_0_1.npy')
+dlogp_anomalous = np.load('vectors_MNIST_0_1/abnorm_allcats.npy')
 
 # Calculate mean, std, and variance for normal
 dlogp_normal_mean = np.mean(dlogp_normal, axis=0)

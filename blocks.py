@@ -454,7 +454,168 @@ class Beta1D(ab.Sampleable):
         points = (self.start.unsqueeze(0) + t.unsqueeze(1) * self.vector.unsqueeze(0)).to(device)
         # Return samples
         return points
+
+class UniformGraySampler(ab.Sampleable):
+    """
+    Sampler that generates 32x32 grayscale images where all pixels
+    have the same value. Returns discrete gray level indices as labels.
+    """
     
+    def __init__(self, num_gray_levels: int = 10):
+        """
+        Args:
+            num_gray_levels: number of discrete gray levels (must match embedding size!)
+        """
+        self.num_gray_levels = num_gray_levels
+    
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            num_samples: the number of samples needed
+        Returns:
+            samples: shape (batch_size, 1, 32, 32) - grayscale images with channel dim
+            labels: shape (batch_size,) - integer gray level indices in [0, num_gray_levels-1]
+        """
+        # Sample random gray level indices
+        gray_indices = torch.randint(0, self.num_gray_levels, (num_samples,))
+        
+        # Convert indices to normalized gray values [0, 1]
+        gray_values = gray_indices.float().to(device) / (self.num_gray_levels - 1)
+        
+        # Create 32x32 images with channel dimension: (batch_size, 1, 32, 32)
+        samples = gray_values.view(num_samples, 1, 1, 1).expand(num_samples, 1, 32, 32).clone().to(device)
+        
+        # Return integer labels for the embedding layer
+        return samples, gray_indices
+
+class CIFAR10CatGrayscaleSampler(ab.Sampleable):
+    """
+    Sampler that returns grayscale CIFAR-10 cat images.
+    CIFAR-10 cats are class index 3.
+    """
+    
+    def __init__(self, root: str = './data', train: bool = True, download: bool = True):
+        """
+        Args:
+            root: directory to store/load CIFAR-10 data
+            train: if True, use training set; if False, use test set
+            download: if True, download CIFAR-10 if not present
+        """
+        # Load CIFAR-10 dataset
+        self.dataset = datasets.CIFAR10(
+            root=root,
+            train=train,
+            download=download,
+            transform=None  # We'll handle transforms manually
+        )
+        
+        # CIFAR-10 class index for cats
+        self.cat_class_idx = 3
+        
+        # Filter for only cat images
+        self.cat_indices = [i for i, (_, label) in enumerate(self.dataset) if label == self.cat_class_idx]
+        
+        print(f"Found {len(self.cat_indices)} cat images in CIFAR-10 {'train' if train else 'test'} set")
+        
+        if len(self.cat_indices) == 0:
+            raise ValueError("No cat images found in CIFAR-10 dataset!")
+    
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            num_samples: the number of samples needed
+        Returns:
+            samples: shape (batch_size, 1, 32, 32) - grayscale cat images
+            labels: shape (batch_size,) - all will be 3 (cat class index)
+        """
+        # Randomly sample cat image indices
+        sampled_indices = np.random.choice(self.cat_indices, size=num_samples, replace=True)
+        
+        batch_images = []
+        for idx in sampled_indices:
+            # Get image (PIL Image, RGB)
+            img, _ = self.dataset[idx]
+            
+            # Convert PIL Image to tensor and normalize to [0, 1]
+            img_array = np.array(img).astype(np.float32) / 255.0  # (32, 32, 3)
+            
+            # Convert RGB to grayscale using standard weights
+            # Grayscale = 0.299*R + 0.587*G + 0.114*B
+            gray = 0.299 * img_array[:, :, 0] + 0.587 * img_array[:, :, 1] + 0.114 * img_array[:, :, 2]
+            
+            batch_images.append(gray)
+        
+        # Stack into batch and add channel dimension: (batch_size, 1, 32, 32)
+        samples = torch.FloatTensor(np.stack(batch_images)).unsqueeze(1)
+        
+        # All labels are 3 (cat class)
+        labels = torch.full((num_samples,), self.cat_class_idx, dtype=torch.long)
+        
+        return samples.to(device), labels.to(device)
+
+class CIFAR10CatSampler(ab.Sampleable):
+    """
+    Sampler that returns RGB CIFAR-10 cat images.
+    CIFAR-10 cats are class index 3.
+    """
+    
+    def __init__(self, root: str = './data', train: bool = True, download: bool = True):
+        """
+        Args:
+            root: directory to store/load CIFAR-10 data
+            train: if True, use training set; if False, use test set
+            download: if True, download CIFAR-10 if not present
+        """
+        # Load CIFAR-10 dataset
+        self.dataset = datasets.CIFAR10(
+            root=root,
+            train=train,
+            download=download,
+            transform=None  # We'll handle transforms manually
+        )
+        
+        # CIFAR-10 class index for cats
+        self.cat_class_idx = 3
+        
+        # Filter for only cat images
+        self.cat_indices = [i for i, (_, label) in enumerate(self.dataset) if label == self.cat_class_idx]
+        
+        print(f"Found {len(self.cat_indices)} cat images in CIFAR-10 {'train' if train else 'test'} set")
+        
+        if len(self.cat_indices) == 0:
+            raise ValueError("No cat images found in CIFAR-10 dataset!")
+    
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            num_samples: the number of samples needed
+        Returns:
+            samples: shape (batch_size, 3, 32, 32) - RGB cat images
+            labels: shape (batch_size,) - all will be 3 (cat class index)
+        """
+        # Randomly sample cat image indices
+        sampled_indices = np.random.choice(self.cat_indices, size=num_samples, replace=True)
+        
+        batch_images = []
+        for idx in sampled_indices:
+            # Get image (PIL Image, RGB)
+            img, _ = self.dataset[idx]
+            
+            # Convert PIL Image to numpy array and normalize to [0, 1]
+            img_array = np.array(img).astype(np.float32) / 255.0  # (32, 32, 3)
+            
+            # Transpose from (H, W, C) to (C, H, W) for PyTorch
+            img_array = np.transpose(img_array, (2, 0, 1))  # (3, 32, 32)
+            
+            batch_images.append(img_array)
+        
+        # Stack into batch: (batch_size, 3, 32, 32)
+        samples = torch.FloatTensor(np.stack(batch_images))
+        
+        # All labels are 3 (cat class)
+        labels = torch.full((num_samples,), self.cat_class_idx, dtype=torch.long)
+        
+        return samples.to(device), labels.to(device)
 #---------Models-------------------#
 
 class MNISTUNet(ab.ConditionalVectorField):
@@ -790,7 +951,139 @@ class MoonODE(ab.ODE):
         N = np.prod(shape[1:])
         logps = -N / 2. * np.log(2 * np.pi) - torch.sum(z ** 2, dim=(1)) / 2.
         return logps
+
+class subVPSDE(ab.ODE):
+    def __init__(self, config):
+        self.beta_0 = config['beta_min']
+        self.beta_T = config['beta_max']
+        self.N = config['timesteps']
+        self.ODE = config['ODE']
+
+    @property
+    def T(self):
+        return 1
+
+    def sde(self, x, t):
+        beta_t = self.beta_0 + t * (self.beta_T - self.beta_0)
+        drift = -0.5 * beta_t[:, None, None, None] * x
+        discount = 1.0 - torch.exp(-2.0 * self.beta_0 * t - (self.beta_T - self.beta_0) * t ** 2)
+        diffusion = torch.sqrt(beta_t * discount)
+        return drift, diffusion
+
+    def marginal_prob(self, x, t):
+        log_mean_coeff = (-0.25 * t ** 2 * (self.beta_T - self.beta_0)
+                            -0.5 * t * self.beta_0)
+        mean = torch.exp(log_mean_coeff)[:, None, None, None] * x
+        std = 1.0 - torch.exp(2.0 * log_mean_coeff)
+        return mean, std
+
+    def prior_sampling(self, shape):
+        return torch.randn(*shape)
+
+    def prior_logp(self, z):
+        shape = z.shape
+        N = np.prod(shape[1:])
+        logps = -N / 2. * np.log(2 * np.pi) - torch.sum(z ** 2, dim=(1, 2, 3)) / 2.
+        return logps
+
+    def discretize(self, x, t):
+        dt = 1 / self.N
+        drift, diffusion = self.sde(x, t)
+        f = drift * dt
+        G = diffusion * torch.sqrt(torch.tensor(dt, device=t.device))
+        return f, G
+
+    def reverse_sde(self, score_fn, x, t):
+        drift, diffusion = self.sde(x, t)
+        score = score_fn(x, t)
+        drift = drift - diffusion[:, None, None, None] ** 2 * score * (0.5 if self.ODE else 1.)
+        diffusion = 0 if self.ODE else diffusion
+        return drift, diffusion
+
+    def reverse_discretize(self, score_fn, x, t):
+        f, G = self.discretize(x, t)
+        rev_f = f - G[: None, None, None] ** 2 * 2 * score_fn(x, t) * (0.5 if self.ODE else 1.)
+        rev_G = torch.zero_like(G) if self.ODE else G
+        return rev_f, rev_G
+
+    def fwd_ODE(self, score_fn, x, t):
+        drift, diffusion = self.sde(x, t)
+        score = score_fn(x, t)
+        drift = -drift + diffusion[:, None, None, None] ** 2 * score * 0.5
+        return drift, 0
+
+class Likelihood2DODE(ab.ODE):
+    def __init__(self, net):
+        self.net = net
+    
+    def drift_coefficient(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+        - x: (bs, c, h, w)
+        - t: (bs, 1, 1, 1)
+        """
+        x = x.to(device)
+        t = t.to(device)
+
        
+        return self.net(x, t)
+    
+        
+    def compute_div(self, x: torch.Tensor, t: torch.Tensor, create_graph=True):
+        """
+        Compute divergence using Hutchinson's trace estimator
+        More efficient for high-dimensional problems
+        """
+        x = x.to(device)
+        t = t.to(device)
+
+        
+        batch_size = x.shape[0]
+        original_shape = x.shape
+        
+        # Flatten and require gradients
+        x_flat = x.flatten(1).requires_grad_(True)
+        x_dim = x_flat.shape[1]
+        
+        # Reshape for U-Net
+        x_reshaped = x_flat.view(original_shape)
+        
+        # Get vector field
+        vector_field = self.drift_coefficient(x_reshaped, t)
+        vec_flat = vector_field.flatten(1)
+        
+        # Use random vectors for Hutchinson's estimator (more efficient than exact trace)
+        num_hutchinson_samples = min(10, x_dim)  # Use fewer samples for efficiency
+        div_estimates = []
+        
+        for _ in range(num_hutchinson_samples):
+            # Random Rademacher vector (±1)
+            epsilon = torch.randint_like(vec_flat, 0, 2).float() * 2 - 1
+            
+            # Compute epsilon^T * vec_flat
+            epsilon_dot_v = (epsilon * vec_flat).sum()
+            
+            # Compute gradient
+            grad_v = torch.autograd.grad(
+                outputs=epsilon_dot_v,
+                inputs=x_flat,
+                create_graph=create_graph,
+                retain_graph=True
+            )[0]
+            
+            # Compute epsilon^T * grad_v (approximates trace)
+            trace_estimate = (epsilon * grad_v).sum(dim=1)
+            div_estimates.append(trace_estimate)
+        
+        # Average over Hutchinson samples
+        div = torch.stack(div_estimates).mean(dim=0)
+        return div
+    
+    def prior_logp(self, z):
+        shape = z.shape
+        N = np.prod(shape[1:])
+        logps = -N / 2. * np.log(2 * np.pi) - torch.sum(z ** 2, dim=(1)) / 2.
+        return logps       
 #---------Simulators---------------#
 
 class EulerSimulator(ab.Simulator):
@@ -824,10 +1117,13 @@ class LikelihoodSimulator(ab.Simulator):
             x = self.step(x, t, h, y, **kwargs)
             xlog = x.clone()
             delta_logp = self.ode.compute_div(xlog, t, y)
+            # print(f'Delta log p: {delta_logp}')
             xs.append(x.clone())
             delta_logps.append(delta_logp.clone())
         prior_logp = self.ode.prior_logp(x)
-        delta_logps.append(prior_logp.clone())
+        # print(f'Prior_logp: {prior_logp}')
+        delta_logps = [i + prior_logp for i in delta_logps]
+        # delta_logps.append(prior_logp.clone())
         xs = torch.stack(xs, dim=1)
         delta_logps = torch.stack(delta_logps, dim=1)
         return xs, delta_logps
@@ -903,6 +1199,12 @@ class Gaussian(torch.nn.Module, ab.Sampleable, ab.Density):
     @classmethod
     def isotropic(cls, dim: int, std: float) -> "Gaussian":
         mean = torch.zeros(dim)
+        cov = torch.eye(dim) * std ** 2
+        return cls(mean, cov)
+    
+    @classmethod
+    def isotropic_with_mean(cls, mean: torch.Tensor, std: float) -> "Gaussian":
+        dim = mean.shape[0]
         cov = torch.eye(dim) * std ** 2
         return cls(mean, cov)
 

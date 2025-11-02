@@ -21,10 +21,13 @@ sampler = UniformSampler(device)
 #     alpha = LinearAlpha(),
 #     beta = LinearBeta()
 # )
+
+mean = torch.tensor([10,10], dtype=torch.float32)
 path = LinearConditionalProbabilityPath(
     p_simple = Gaussian.isotropic(dim=2, std=1.0).to(device),
-    p_data = UniformSampler(device)
+    p_data = Gaussian.isotropic_with_mean(mean, std=1.0).to(device)
 )
+
 # Initialise model
 linear_flow_model = MLPVectorField(dim=2, hiddens=[64,64,64,64]).to(device)
 

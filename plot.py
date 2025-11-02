@@ -43,7 +43,7 @@ num_timesteps = 100
 num_samples = num_rows * num_cols
 
 
-unet.load_state_dict(torch.load('trained/model2025-09-15_12-02-14.pth', map_location=device))
+unet.load_state_dict(torch.load('trained/model2025-10-13_10-41-58.pth', map_location=device))
 z, y = path.p_data.sample(num_samples)
 
 
