@@ -54,7 +54,7 @@ for i in range(100):
     x0 = z
     x1, dlogp = simulator.simulate_with_likelihood(x0, timestep)
     dlogp = dlogp.detach().cpu().numpy()
-    dlogp = (np.flip(dlogp))
+    dlogp = np.cumsum(np.flip(dlogp))
     
     # Append to list
     dlogp_list.append(dlogp)
