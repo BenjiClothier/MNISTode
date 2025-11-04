@@ -290,17 +290,20 @@ class Trainer(ABC):
         self.model = model
     
     @abstractmethod
-    def get_train_loss(self, **kwargs) -> torch.Tensor:
+    def get_train_loss(self, batch_size) -> torch.Tensor:
         pass
 
     
     def get_optimiser(self, lr: float):
         return torch.optim.Adam(self.model.parameters(), lr=lr)
     
-    def train(self, num_epoch: int, device: torch.device, lr: float = 1e-3,
-              log_dir: str = f'runs/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}', **kwargs) -> torch.Tensor:
+    def train(self, num_epoch: int, device: torch.device, batch_size: int, lr: float = 1e-3,
+              **kwargs) -> torch.Tensor:
         print(f'Training model....')
-
+        if 'ldigit' in kwargs:
+            log_dir = f'trained/ldigit_{kwargs["ldigit"]}_bs{batch_size}_iter{num_epoch}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
+        else:
+            log_dir = f'trained/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
         # Start
         self.model.to(device)
         opt = self.get_optimiser(lr)
@@ -312,21 +315,26 @@ class Trainer(ABC):
         pbar = tqdm(enumerate(range(num_epoch)))
         for idx, epoch in pbar:
             opt.zero_grad()
-            loss = self.get_train_loss(**kwargs)
+            loss = self.get_train_loss(batch_size)
             loss.backward()
             self.writer.add_scalar('Loss/Train', loss.item(), self.step)
             self.step += 1
             opt.step()
             pbar.set_description(f'Epoch {idx}, loss: {loss.item():.3f}')
+            if epoch % 100 == 0:
+                file = f'epoch_{epoch}_{kwargs['ldigit']}'
+                filepath = os.path.join(log_dir, file)
+                torch.save(self.model.state_dict(), filepath)
+                print(f"Epoch saved to: {filepath}")
 
         # Save model
         os.makedirs('trained', exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f'model{stamp}.pth'
-        filepath= os.path.join('trained', filename)
+        filepath= os.path.join(log_dir, filename)
 
         torch.save(self.model.state_dict(), filepath)
-        print(f"Model saved to: {filepath}")
+        print(f"Final model saved to: {filepath}")
 
         # Finish
         self.writer.close()

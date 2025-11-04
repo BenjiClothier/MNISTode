@@ -1127,6 +1127,57 @@ class LikelihoodSimulator(ab.Simulator):
         xs = torch.stack(xs, dim=1)
         delta_logps = torch.stack(delta_logps, dim=1)
         return xs, delta_logps
+    
+    def simulate_with_likelihood_augmented(self, x0, ts, y, **kwargs):
+        """
+        Simulate from t=1 (data) to t=0 (noise) and compute log p(x_data)
+        """
+        batch_size = x0.shape[0]
+        nts = ts.shape[1]
+        
+        # Initialize trajectories
+        xs = [x0.clone()]
+        
+        # Track ACCUMULATED DIVERGENCE (not log p yet!)
+        accumulated_div = torch.zeros(batch_size).to(x0.device)
+        div_trajectory = [accumulated_div.clone()]
+        
+        x = x0
+        
+        for t_idx in tqdm(range(nts - 1)):
+            t = ts[:, t_idx]
+            dt = ts[:, t_idx + 1] - ts[:, t_idx]  # Negative (going 1 -> 0)
+            
+            # Heun's method for x
+            k1 = self.ode.drift_coefficient(x, t, y)
+            x_pred = x + dt * k1
+            k2 = self.ode.drift_coefficient(x_pred, t + dt, y)
+            x = x + 0.5 * dt * (k1 + k2)
+            
+            # Compute divergence
+            div = self.ode.compute_div(x, t, y)
+            
+            # Accumulate: ∫ div dt (with dt negative)
+            accumulated_div = accumulated_div - div * dt.squeeze()
+            
+            xs.append(x.clone())
+            div_trajectory.append(accumulated_div.clone())
+        
+        # NOW we can compute log probabilities
+        prior_logp = self.ode.prior_logp(x)  # log p(x_noise)
+        final_logp = prior_logp + accumulated_div  # log p(x_data)
+        
+        # Create the actual log p trajectory (working backwards)
+        logp_trajectory = []
+        for i in range(len(div_trajectory)):
+            # At each point, log p = prior + accumulated div up to that point
+            logp_at_t = prior_logp + div_trajectory[i]
+            logp_trajectory.append(logp_at_t)
+        
+        xs = torch.stack(xs, dim=1)
+        logp_trajectory = torch.stack(logp_trajectory, dim=1)
+        
+        return xs, logp_trajectory, final_logp
 
 class HuenSimulator(ab.Simulator):
     def __init__(self, ode: ab.ODE):
@@ -1155,7 +1206,58 @@ class HuenSimulator(ab.Simulator):
         xs = torch.stack(xs, dim=1)
         delta_logps = torch.stack(delta_logps, dim=1)
         return xs, delta_logps
-
+    
+    def simulate_with_likelihood_augmented(self, x0, ts, **kwargs):
+        """
+        Simulate from t=1 (data) to t=0 (noise) and compute log p(x_data)
+        """
+        batch_size = x0.shape[0]
+        nts = ts.shape[1]
+        
+        # Initialize trajectories
+        xs = [x0.clone()]
+        
+        # Track ACCUMULATED DIVERGENCE (not log p yet!)
+        accumulated_div = torch.zeros(batch_size).to(x0.device)
+        div_trajectory = [accumulated_div.clone()]
+        
+        x = x0
+        
+        for t_idx in tqdm(range(nts - 1)):
+            t = ts[:, t_idx]
+            dt = ts[:, t_idx + 1] - ts[:, t_idx]  # Negative (going 1 -> 0)
+            
+            # Heun's method for x
+            k1 = self.ode.drift_coefficient(x, t, **kwargs)
+            x_pred = x + dt * k1
+            k2 = self.ode.drift_coefficient(x_pred, t + dt, **kwargs)
+            x = x + 0.5 * dt * (k1 + k2)
+            
+            # Compute divergence
+            div = self.ode.compute_div(x, t, **kwargs)
+            
+            # Accumulate: ∫ div dt (with dt negative)
+            accumulated_div = accumulated_div - div * dt.squeeze()
+            
+            xs.append(x.clone())
+            div_trajectory.append(accumulated_div.clone())
+        
+        # NOW we can compute log probabilities
+        prior_logp = self.ode.prior_logp(x)  # log p(x_noise)
+        final_logp = prior_logp + accumulated_div  # log p(x_data)
+        
+        # Create the actual log p trajectory (working backwards)
+        logp_trajectory = []
+        for i in range(len(div_trajectory)):
+            # At each point, log p = prior + accumulated div up to that point
+            logp_at_t = prior_logp + div_trajectory[i]
+            logp_trajectory.append(logp_at_t)
+        
+        xs = torch.stack(xs, dim=1)
+        logp_trajectory = torch.stack(logp_trajectory, dim=1)
+        
+        return xs, logp_trajectory, final_logp
+    
 class HuenLabelSimulator(ab.Simulator):
     def __init__(self, ode: ab.ODE):
         self.ode = ode

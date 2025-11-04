@@ -43,7 +43,7 @@ num_timesteps = 100
 num_samples = num_rows * num_cols
 
 
-unet.load_state_dict(torch.load('trained/2025-11-04_13-06-46/model2025-11-04_13-22-39.pth', map_location=device))
+unet.load_state_dict(torch.load('trained/2025-11-04_11-27-32/model2025-11-04_11-27-49.pth', map_location=device))
 z, y = path.p_data.sample(num_samples)
 
 
@@ -51,8 +51,9 @@ z, y = path.p_data.sample(num_samples)
 ode = VectorFieldODE(unet)
 simulator = HuenLabelSimulator(ode)
 
-timestep = torch.linspace(0,1,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
-x0 = path.p_simple.sample(num_samples)
+
+timestep = torch.linspace(1,0,num_timesteps).view(1, -1, 1, 1, 1).expand(num_samples, -1, 1, 1, 1).to(device)
+x0 = z
 x1 = simulator.simulate(x0,timestep, y=y)
 
 # Create grids for x0 and x1

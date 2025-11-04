@@ -24,7 +24,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Initialise probability path
 path = GaussianConditionalProbabilityPath(
-    p_data = FilteredMNISTSampler(excluded_digits=[0,1,2,3,4,5,6,7]),
+    p_data = FilteredMNISTSampler(excluded_digits=[0,1,2,3,4,5,6,7,9]),
     p_simple_shape = [1, 32, 32],
     alpha = LinearAlpha(),
     beta = LinearBeta()
@@ -42,7 +42,7 @@ unet = MNISTUNet(
 trainer = ConditionalLabelledFlowMatchingTrainer(model=unet, path=path)
 
 # Train
-trainer.train(num_epoch=10000, device=device, lr=1e-3, batch_size=150)
+trainer.train(num_epoch=15000, device=device, lr=1e-3, batch_size=256, ldigit=8)
 
 
 
